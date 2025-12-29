@@ -1,13 +1,14 @@
-import { View, Button, Image, Alert, StyleSheet } from 'react-native';
+import { View, Button, Image, Alert, StyleSheet, Text } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library'; // YENİ EKLENDİ
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 
 export default function CameraScreen() {
   const [imageUri, setImageUri] = useState(null);
+  const [permissionResponse, requestPermission] = MediaLibrary.usePermissions(); // YENİ: Galeri kayıt izni
 
   const pickImage = async () => {
-    // Galeri izni iste
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (status !== 'granted') {
@@ -15,7 +16,6 @@ export default function CameraScreen() {
       return;
     }
 
-    // Galeriyi aç
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 1,
@@ -23,40 +23,64 @@ export default function CameraScreen() {
 
     if (!result.canceled) {
       setImageUri(result.assets[0].uri);
-      // Titreşim geri bildirimi
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   };
 
   const takePhoto = async () => {
-    // Kamera izni iste
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    // 1. Kamera izni iste
+    const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
     
-    if (status !== 'granted') {
+    if (cameraStatus !== 'granted') {
       Alert.alert('Kamera izni gerekli', 'Fotoğraf çekmek için izin vermelisiniz.');
       return;
     }
 
-    // Kamerayı aç
+    // 2. Kamerayı aç
     const result = await ImagePicker.launchCameraAsync({
       quality: 1,
     });
 
     if (!result.canceled) {
-      setImageUri(result.assets[0].uri);
-      // Başarılı işlem bildirimi (farklı bir titreşim)
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const uri = result.assets[0].uri;
+      setImageUri(uri);
+      
+      // 3. Fotoğrafı Galeriye Kaydetme İşlemi (YENİ KISIM)
+      try {
+        // Galeriye yazma izni var mı kontrol et
+        if (permissionResponse?.status !== 'granted') {
+            const { status } = await requestPermission();
+            if (status !== 'granted') {
+                Alert.alert("Hata", "Fotoğrafı kaydetmek için galeri izni lazım.");
+                return;
+            }
+        }
+        
+        // Varlığı oluştur (Kaydet)
+        await MediaLibrary.createAssetAsync(uri);
+        
+        // Başarılı bildirimi
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert("Başarılı", "Fotoğraf galeriye kaydedildi! 📸");
+
+      } catch (error) {
+        console.log(error);
+        Alert.alert("Hata", "Fotoğraf kaydedilemedi.");
+      }
     }
   };
 
   return (
     <View style={styles.container}>
       <Button title="Galeriden Seç" onPress={pickImage} />
-      <Button title="Fotoğraf Çek" onPress={takePhoto} />
+      <View style={{ marginTop: 10 }}>
+        <Button title="Fotoğraf Çek ve Kaydet" onPress={takePhoto} />
+      </View>
       
       {imageUri && (
         <Image source={{ uri: imageUri }} style={styles.image} resizeMode="contain" />
       )}
+      <Text style={styles.info}>Çekilen fotoğraflar galeriye kaydedilir.</Text>
     </View>
   );
 }
@@ -66,13 +90,19 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 16,
     padding: 20,
-    justifyContent: 'flex-start', // Butonlar üstte dursun
+    justifyContent: 'flex-start',
   },
   image: {
     width: '100%',
     height: 300,
     marginTop: 20,
-    borderRadius: 10, // Biraz görsellik
-    backgroundColor: '#f0f0f0', // Resim yokken veya yüklenirken belli olsun
+    borderRadius: 10,
+    backgroundColor: '#f0f0f0',
   },
+  info: {
+    textAlign: 'center',
+    color: '#666',
+    fontSize: 12,
+    marginTop: 5
+  }
 });
